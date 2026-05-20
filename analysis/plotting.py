@@ -66,12 +66,13 @@ def plot_runtime(df):
     )
 
 
-def plot_ess_per_sec(df):
+def plot_ess_per_sec(df, title="ESS per Second vs Dimension", 
+                     save_path="results/figures/ess_per_second_vs_dimension.png"):
     plot_metric(
         df=df, metric="ess_per_sec",
         ylabel="ESS per Second",
-        title="ESS per Second vs Dimension",
-        save_path="results/figures/ess_per_second_vs_dimension.png"
+        title=title,
+        save_path=save_path
     )
 
 
