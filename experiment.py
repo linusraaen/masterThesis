@@ -26,13 +26,13 @@ from analysis.plotting import (
 )
 
 CONFIG = {
-    "dimensions":        [2, 10, 50, 100, 200, 500], 
-    "funnel_dimensions": [2, 5, 10, 30, 100, 200, 500],  
+    "dimensions":        [2, 10, 50, 100, 200, 500, 1000, 2000], 
+    "funnel_dimensions": [2, 5, 10, 30, 100, 200, 500, 1000],  
     "condition_numbers": [10, 100, 1000], 
     "num_samples":       2000,
     "warmup_steps":      1000,
     "seed":              18,
-    "proposal_std":      2.38 #Roberts et al. (1997)
+    "proposal_std":      2.38 
 }
 
 

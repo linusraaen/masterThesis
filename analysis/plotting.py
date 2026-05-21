@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import pandas as pd
 
@@ -81,10 +83,11 @@ def plot_experiment_panel(df_iso, df_ill, df_fun, condition_number=100):
     fig.suptitle("Scalability of MCMC Methods", fontsize=14, fontweight="bold")
 
     datasets = [
-        (axes[0], df_iso,                                           "Isotropic Gaussian"),
-        (axes[1], df_ill[df_ill["condition_number"] == condition_number], f"Ill-Conditioned (κ={condition_number})"),
-        (axes[2], df_fun[df_fun["parameterisation"] == "centred"],  "Neal's Funnel (centred)"),
-    ]
+    (axes[0], df_iso, "Isotropic Gaussian"),
+    (axes[1], df_ill[df_ill["condition_number"] == 100], "Ill-Conditioned (κ=100)"),
+    (axes[2], df_fun[df_fun["parameterisation"] == "centred"], "Neal's Funnel (centred)"),
+    (axes[3], df_fun[df_fun["parameterisation"] == "noncentred"], "Neal's Funnel (non-centred)"),
+]
 
     for ax, data, title in datasets:
         for algo in ALGO_ORDER:

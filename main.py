@@ -48,7 +48,7 @@ def main():
             save_path=f"results/figures/ess_per_sec_ill_kappa{kappa}.png"
         )
  
-    for dim in [10, 100, 500]:
+    for dim in [10, 100, 2000]:
         plot_condition_number_sweep(df_ill, dimension=dim)
 
     print("\n=== Experiment 3: Neal's Funnel ===")
