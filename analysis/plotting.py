@@ -7,10 +7,10 @@ import numpy as np
 
 ALGO_COLORS = {"RWM": "#3a7eca", "HMC": "#f58c2a", "NUTS": "#3daa62"}
 ALGO_ORDER  = ["RWM", "HMC", "NUTS"]
+PRIOR_COLORS = {0.1: "#e41a1c", 1.0: "#377eb8", 10.0: "#4daf4a"}
 
 
 def _agg(df, metric, group_cols=None):
-    """Aggregate metric by algorithm + dimension (+ any extra group cols)."""
     if group_cols is None:
         group_cols = []
     return (
@@ -19,6 +19,17 @@ def _agg(df, metric, group_cols=None):
         .reset_index()
     )
 
+
+def _agg_by(df, metric, group_cols):
+    """Aggregate metric by arbitrary group columns (no dimension)."""
+    return (
+        df.groupby(group_cols)[metric]
+        .agg(["mean", "std"])
+        .reset_index()
+    )
+
+
+# ── Existing plots ────────────────────────────────────────────────────────────
 
 def plot_metric_with_errors(
     df, metric, ylabel, title,
@@ -140,12 +151,16 @@ def plot_divergences(df, title="Divergences vs Dimension",
     plt.close()
 
 
-def plot_logistic_regression_bar(df_lr, save_path="results/figures/ess_per_sec_logistic.png"):
+def plot_logistic_regression_bar(
+        df_lr,
+        title="ESS/s — Bayesian Logistic Regression",
+        save_path="results/figures/ess_per_sec_logistic.png"):
     """
-    Bar chart for logistic regression — single dimension (d=30)
-    so a line plot doesn't make sense. Shows mean ± std across seeds.
+    ESS/s bar chart. Pass pre-filtered dataframe — no internal filtering.
+    Works for logistic regression and 8-schools.
     """
-    agg = df_lr.groupby("algorithm")["ess_per_sec"].agg(["mean", "std"]).reset_index()
+    agg = df_lr.groupby("algorithm")["ess_per_sec"].agg(
+        ["mean", "std"]).reset_index()
     agg = agg[agg["algorithm"].isin(ALGO_ORDER)]
 
     plt.figure(figsize=(6, 5))
@@ -153,27 +168,33 @@ def plot_logistic_regression_bar(df_lr, save_path="results/figures/ess_per_sec_l
     plt.bar(agg["algorithm"], agg["mean"], yerr=agg["std"],
             color=colors, capsize=6, edgecolor="white", linewidth=0.5)
     plt.ylabel("ESS per Second")
-    plt.title("ESS/s — Bayesian Logistic Regression (d=30)")
+    plt.title(title)
     plt.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.6)
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     plt.close()
 
 
-def plot_rhat_bar(df_lr, save_path="results/figures/rhat_logistic.png"):
-    """R-hat bar chart for logistic regression."""
+def plot_rhat_bar(
+        df_lr,
+        title="R-hat — Bayesian Logistic Regression",
+        save_path="results/figures/rhat_logistic.png"):
+    """
+    R-hat bar chart. Pass pre-filtered dataframe — no internal filtering.
+    Works for logistic regression and 8-schools.
+    """
     agg = df_lr.groupby("algorithm")["rhat"].agg(["mean", "std"]).reset_index()
     agg = agg[agg["algorithm"].isin(ALGO_ORDER)]
 
     plt.figure(figsize=(6, 5))
     colors = [ALGO_COLORS[a] for a in agg["algorithm"]]
-    bars = plt.bar(agg["algorithm"], agg["mean"], yerr=agg["std"],
-                   color=colors, capsize=6, edgecolor="white", linewidth=0.5)
+    plt.bar(agg["algorithm"], agg["mean"], yerr=agg["std"],
+            color=colors, capsize=6, edgecolor="white", linewidth=0.5)
     plt.axhline(y=1.1, color="red", linestyle="--", linewidth=1,
                 label="R-hat = 1.1 (warning threshold)")
     plt.axhline(y=1.0, color="black", linestyle=":", linewidth=0.8, alpha=0.5)
     plt.ylabel("R-hat")
-    plt.title("R-hat — Bayesian Logistic Regression (d=30)")
+    plt.title(title)
     plt.legend()
     plt.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.6)
     plt.tight_layout()
@@ -181,14 +202,137 @@ def plot_rhat_bar(df_lr, save_path="results/figures/rhat_logistic.png"):
     plt.close()
 
 
+# ── Prior scale plots ─────────────────────────────────────────────────────────
+
+def plot_prior_scale_comparison(
+        df_lr, metric="ess_per_sec",
+        ylabel="ESS per Second",
+        title="Effect of Prior Scale on ESS/s",
+        save_path="results/figures/prior_scale_ess_per_sec.png"):
+    """Grouped bar chart: x-axis = algorithm, groups = prior_std."""
+    _grouped_bar(
+        df_lr, metric, "prior_std", PRIOR_COLORS,
+        ylabel=ylabel, title=title, save_path=save_path,
+        group_label_fmt="σ={}",
+    )
+
+
+def plot_prior_scale_rhat(
+        df_lr,
+        save_path="results/figures/prior_scale_rhat.png"):
+    """Grouped bar chart of R-hat across prior scales."""
+    _grouped_bar(
+        df_lr, "rhat", "prior_std", PRIOR_COLORS,
+        ylabel="R-hat",
+        title="Effect of Prior Scale on R-hat",
+        save_path=save_path,
+        threshold_line=1.1,
+        group_label_fmt="σ={}",
+    )
+
+
+
+
+# ── Tau scale plots (8-schools) ───────────────────────────────────────────────
+
+TAU_COLORS = {1.0: "#e41a1c", 10.0: "#377eb8", 100.0: "#4daf4a"}
+
+
+def _grouped_bar(df, metric, group_col, group_colors, ylabel, title,
+                 save_path, threshold_line=None, group_label_fmt="{}"):
+    """
+    Generic grouped bar chart helper.
+    x-axis = algorithm, groups = unique values of group_col.
+    """
+    groups = sorted(df[group_col].unique())
+    agg = df.groupby(["algorithm", group_col])[metric].agg(
+        ["mean", "std"]).reset_index()
+
+    algos = [a for a in ALGO_ORDER if a in agg["algorithm"].values]
+    n_algos  = len(algos)
+    n_groups = len(groups)
+    width = 0.25
+    x = np.arange(n_algos)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for i, g in enumerate(groups):
+        sub = agg[agg[group_col] == g]
+        means = [sub[sub["algorithm"] == a]["mean"].values[0]
+                 if len(sub[sub["algorithm"] == a]) > 0 else 0
+                 for a in algos]
+        stds  = [sub[sub["algorithm"] == a]["std"].values[0]
+                 if len(sub[sub["algorithm"] == a]) > 0 else 0
+                 for a in algos]
+        offset = (i - n_groups / 2 + 0.5) * width
+        ax.bar(x + offset, means, width, yerr=stds,
+               label=group_label_fmt.format(g),
+               color=group_colors.get(g, f"C{i}"),
+               capsize=4, alpha=0.85)
+
+    if threshold_line is not None:
+        ax.axhline(y=threshold_line, color="red", linestyle="--",
+                   linewidth=1, label=f"threshold = {threshold_line}")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(algos)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.6)
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Saved {save_path}")
+
+
+def plot_tau_scale_comparison(
+        df_8s,
+        parameterisation="centred",
+        save_path="results/figures/tau_scale_ess_per_sec_centred.png"):
+    """
+    Grouped bar chart showing ESS/s across tau_scale values for one
+    parameterisation of the 8-schools model.
+    """
+    data = df_8s[df_8s["parameterisation"] == parameterisation]
+    param_label = "Centred" if parameterisation == "centred" else "Non-Centred"
+    _grouped_bar(
+        data, "ess_per_sec", "tau_scale", TAU_COLORS,
+        ylabel="ESS per Second",
+        title=f"Effect of Prior Scale on ESS/s — 8-Schools ({param_label})",
+        save_path=save_path,
+        group_label_fmt="τ scale={}",
+    )
+
+
+def plot_tau_scale_rhat(
+        df_8s,
+        parameterisation="centred",
+        save_path="results/figures/tau_scale_rhat_centred.png"):
+    """
+    Grouped bar chart showing R-hat across tau_scale values for one
+    parameterisation of the 8-schools model.
+    """
+    data = df_8s[df_8s["parameterisation"] == parameterisation]
+    param_label = "Centred" if parameterisation == "centred" else "Non-Centred"
+    _grouped_bar(
+        data, "rhat", "tau_scale", TAU_COLORS,
+        ylabel="R-hat",
+        title=f"Effect of Prior Scale on R-hat — 8-Schools ({param_label})",
+        save_path=save_path,
+        threshold_line=1.1,
+        group_label_fmt="τ scale={}",
+    )
+
+
+# ── Panel plots ───────────────────────────────────────────────────────────────
+
 def plot_experiment_panel(df_iso, df_fun):
     """3-panel summary: isotropic, funnel centred, funnel non-centred."""
     fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
     fig.suptitle("Scalability of MCMC Methods", fontsize=14, fontweight="bold")
 
     datasets = [
-        (axes[0], df_iso,
-         "Isotropic Gaussian"),
+        (axes[0], df_iso, "Isotropic Gaussian"),
         (axes[1], df_fun[df_fun["parameterisation"] == "centred"],
          "Neal's Funnel (centred)"),
         (axes[2], df_fun[df_fun["parameterisation"] == "noncentred"],
@@ -215,7 +359,8 @@ def plot_experiment_panel(df_iso, df_fun):
 
     axes[0].set_ylabel("ESS per Second", fontsize=10)
     fig.tight_layout()
-    fig.savefig("results/figures/experiment_panel.png", dpi=300, bbox_inches="tight")
+    fig.savefig("results/figures/experiment_panel.png", dpi=300,
+                bbox_inches="tight")
     plt.close()
     print("Saved results/figures/experiment_panel.png")
 

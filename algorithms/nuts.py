@@ -26,7 +26,7 @@ def run_nuts(
         num_samples=num_samples,
         num_warmup=warmup_steps,
         num_chains=num_chains,
-        progress_bar=False
+        progress_bar=True
     )
 
     start = time.time()

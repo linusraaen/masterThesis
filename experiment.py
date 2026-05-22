@@ -2,8 +2,8 @@ import numpyro
 numpyro.set_host_device_count(4)
 
 import jax
-import pandas as pd
 import jax.numpy as jnp
+import pandas as pd
 from jax import random
 from functools import partial
 
@@ -17,26 +17,15 @@ from datasets import (
     funnel_model_noncentred,
     prepare_breast_cancer_data,
     bayesian_logistic_regression,
+    eight_schools_centred,
+    eight_schools_noncentred,
 )
-
 
 from analysis.metrics import (
     compute_ess,
     compute_rhat,
     compute_ess_per_sec,
-    measure_runtime
-)
-
-from analysis.plotting import (
-    plot_ess,
-    plot_runtime,
-    plot_ess_per_sec,
-    plot_rhat,
-    plot_divergences,
-    plot_experiment_panel,
-    plot_funnel_comparison,
-    plot_logistic_regression_bar,
-    plot_rhat_bar,
+    measure_runtime,
 )
 
 CONFIG = {
@@ -47,106 +36,90 @@ CONFIG = {
     "num_chains":        4,
     "seeds":             [18, 42, 123],
     "proposal_std":      2.38,
+    "prior_stds":        [0.1, 1.0, 10.0],
+    "tau_scales":        [1.0, 10.0, 100.0],
 }
 
 
-# ── Shared helpers ────────────────────────────────────────────────────────────
+# ── Core helpers ──────────────────────────────────────────────────────────────
 
-def _run_dimension(d, rng_key, hmc_model, nuts_model, rwm_log_density,
-                   model_kwargs, rwm_kwargs, num_samples, warmup_steps,
-                   num_chains, proposal_std):
+def _make_row(algorithm, dimension, runtime, ess, rhat, divergences,
+              acceptance_rate, seed, extra_fields):
+    return {
+        "algorithm":       algorithm,
+        "dimension":       dimension,
+        "runtime":         runtime,
+        "ess":             ess,
+        "ess_per_sec":     compute_ess_per_sec(ess, runtime),
+        "rhat":            rhat,
+        "divergences":     divergences,
+        "acceptance_rate": acceptance_rate,
+        "seed":            seed,
+        **extra_fields,
+    }
+
+
+def _run_all_algorithms(rng_key, dimension, seed, extra_fields, cfg,
+                        hmc_model, nuts_model,
+                        rwm_log_density, rwm_model_kwargs=None,
+                        hmc_model_kwargs=None,
+                        include_rwm=True):
+    """Runs RWM, HMC, and NUTS for a single configuration."""
+    if rwm_model_kwargs is None:
+        rwm_model_kwargs = {}
+    if hmc_model_kwargs is None:
+        hmc_model_kwargs = {}
+
     rows = []
+    num_chains  = cfg["num_chains"]
+    num_samples = cfg["num_samples"]
+    warmup      = cfg["warmup_steps"]
 
     # RWM
-    rwm = RandomWalkMetropolis(proposal_std=proposal_std)
-    (rwm_samples, acceptance_rate), rwm_runtime = measure_runtime(
-        rwm.sample,
-        rng_key, d, num_samples, warmup_steps,
-        num_chains=num_chains,
-        log_density_fn=rwm_log_density,
-        model_kwargs=rwm_kwargs
-    )
-    rwm_ess  = compute_ess(rwm_samples)
-    rwm_rhat = compute_rhat(rwm_samples, num_chains=num_chains)
-    rows.append({
-        "algorithm":       "RWM",
-        "dimension":       d,
-        "runtime":         rwm_runtime,
-        "ess":             rwm_ess,
-        "ess_per_sec":     compute_ess_per_sec(rwm_ess, rwm_runtime),
-        "rhat":            rwm_rhat,
-        "divergences":     None,
-        "acceptance_rate": acceptance_rate,
-    })
+    if include_rwm:
+        rwm = RandomWalkMetropolis(proposal_std=cfg["proposal_std"])
+        (rwm_samples, acc), rwm_runtime = measure_runtime(
+            rwm.sample, rng_key, dimension, num_samples, warmup,
+            num_chains=num_chains,
+            log_density_fn=rwm_log_density,
+            model_kwargs=rwm_model_kwargs,
+        )
+        rows.append(_make_row(
+            "RWM", dimension, rwm_runtime,
+            compute_ess(rwm_samples),
+            compute_rhat(rwm_samples, num_chains=num_chains),
+            None, acc, seed, extra_fields
+        ))
 
     # HMC
-    hmc_samples, hmc_runtime, hmc_divergences, _ = run_hmc(
-        rng_key, d, num_samples, warmup_steps,
+    rng_key, key = random.split(rng_key)
+    hmc_samples, hmc_runtime, hmc_div, _ = run_hmc(
+        key, dimension, num_samples, warmup,
         num_chains=num_chains,
-        model=hmc_model, model_kwargs=model_kwargs
+        model=hmc_model, model_kwargs=hmc_model_kwargs,
     )
-    hmc_ess  = compute_ess(hmc_samples)
-    hmc_rhat = compute_rhat(hmc_samples, num_chains=num_chains)
-    rows.append({
-        "algorithm":       "HMC",
-        "dimension":       d,
-        "runtime":         hmc_runtime,
-        "ess":             hmc_ess,
-        "ess_per_sec":     compute_ess_per_sec(hmc_ess, hmc_runtime),
-        "rhat":            hmc_rhat,
-        "divergences":     hmc_divergences,
-        "acceptance_rate": None,
-    })
+    rows.append(_make_row(
+        "HMC", dimension, hmc_runtime,
+        compute_ess(hmc_samples),
+        compute_rhat(hmc_samples, num_chains=num_chains),
+        hmc_div, None, seed, extra_fields
+    ))
 
     # NUTS
-    nuts_samples, nuts_runtime, nuts_divergences, _ = run_nuts(
-        rng_key, d, num_samples, warmup_steps,
+    rng_key, key = random.split(rng_key)
+    nuts_samples, nuts_runtime, nuts_div, _ = run_nuts(
+        key, dimension, num_samples, warmup,
         num_chains=num_chains,
-        model=nuts_model, model_kwargs=model_kwargs
+        model=nuts_model, model_kwargs=hmc_model_kwargs,
     )
-    nuts_ess  = compute_ess(nuts_samples)
-    nuts_rhat = compute_rhat(nuts_samples, num_chains=num_chains)
-    rows.append({
-        "algorithm":       "NUTS",
-        "dimension":       d,
-        "runtime":         nuts_runtime,
-        "ess":             nuts_ess,
-        "ess_per_sec":     compute_ess_per_sec(nuts_ess, nuts_runtime),
-        "rhat":            nuts_rhat,
-        "divergences":     nuts_divergences,
-        "acceptance_rate": None,
-    })
+    rows.append(_make_row(
+        "NUTS", dimension, nuts_runtime,
+        compute_ess(nuts_samples),
+        compute_rhat(nuts_samples, num_chains=num_chains),
+        nuts_div, None, seed, extra_fields
+    ))
 
     return rows
-
-
-def _run_experiment_single_seed(seed, dimensions, hmc_model, nuts_model,
-                                 rwm_log_density, model_kwargs, rwm_kwargs,
-                                 extra_fields, cfg):
-    results = []
-    rng_key = random.PRNGKey(seed)
-
-    for d in dimensions:
-        rng_key, key = random.split(rng_key)
-        rows = _run_dimension(
-            d, key,
-            hmc_model=hmc_model,
-            nuts_model=nuts_model,
-            rwm_log_density=rwm_log_density,
-            model_kwargs=model_kwargs,
-            rwm_kwargs=rwm_kwargs,
-            num_samples=cfg["num_samples"],
-            warmup_steps=cfg["warmup_steps"],
-            num_chains=cfg["num_chains"],
-            proposal_std=cfg["proposal_std"],
-        )
-        for r in rows:
-            r["seed"] = seed
-            for k, v in extra_fields.items():
-                r[k] = v
-        results.extend(rows)
-
-    return results
 
 
 # ── Experiment 1: Isotropic Gaussian ─────────────────────────────────────────
@@ -156,18 +129,18 @@ def run_isotropic_experiment():
     results = []
     for seed in cfg["seeds"]:
         print(f"[isotropic] seed={seed}")
-        rows = _run_experiment_single_seed(
-            seed=seed,
-            dimensions=cfg["dimensions"],
-            hmc_model=gaussian_model,
-            nuts_model=gaussian_model,
-            rwm_log_density=LOG_DENSITY_MAP["isotropic"],
-            model_kwargs={},
-            rwm_kwargs={},
-            extra_fields={"experiment": "isotropic"},
-            cfg=cfg,
-        )
-        results.extend(rows)
+        rng_key = random.PRNGKey(seed)
+        for d in cfg["dimensions"]:
+            rng_key, key = random.split(rng_key)
+            rows = _run_all_algorithms(
+                key, d, seed,
+                extra_fields={"experiment": "isotropic"},
+                cfg=cfg,
+                hmc_model=gaussian_model,
+                nuts_model=gaussian_model,
+                rwm_log_density=LOG_DENSITY_MAP["isotropic"],
+            )
+            results.extend(rows)
     return pd.DataFrame(results)
 
 
@@ -182,128 +155,112 @@ def run_funnel_experiment():
     ]:
         for seed in cfg["seeds"]:
             print(f"[funnel {param}] seed={seed}")
-            rows = _run_experiment_single_seed(
-                seed=seed,
-                dimensions=cfg["funnel_dimensions"],
-                hmc_model=hmc_model,
-                nuts_model=nuts_model,
-                rwm_log_density=LOG_DENSITY_MAP[rwm_key],
-                model_kwargs={},
-                rwm_kwargs={},
-                extra_fields={"experiment": "funnel",
-                              "parameterisation": param},
-                cfg=cfg,
-            )
-            results.extend(rows)
+            rng_key = random.PRNGKey(seed)
+            for d in cfg["funnel_dimensions"]:
+                rng_key, key = random.split(rng_key)
+                rows = _run_all_algorithms(
+                    key, d, seed,
+                    extra_fields={"experiment": "funnel",
+                                  "parameterisation": param},
+                    cfg=cfg,
+                    hmc_model=hmc_model,
+                    nuts_model=nuts_model,
+                    rwm_log_density=LOG_DENSITY_MAP[rwm_key],
+                )
+                results.extend(rows)
     return pd.DataFrame(results)
 
 
-# ── Experiment 3: Bayesian Logistic Regression ───────────────────────────────
+# ── Experiment 3: Bayesian Logistic Regression — prior scale sweep ───────────
 
 def run_logistic_regression_experiment():
+    """
+    Tests how prior scale affects sampler performance on a real posterior.
+    Uses the standardised Breast Cancer Wisconsin dataset (d=30).
+    prior_std in {0.1, 1.0, 10.0} — tight, standard, diffuse.
+    """
     cfg = CONFIG
     results = []
+    X, y = prepare_breast_cancer_data(standardise=True)
+    dimension = int(X.shape[1])
 
-    X, y = prepare_breast_cancer_data()
-    dimension = int(X.shape[1])  # 30
-    model = partial(bayesian_logistic_regression, X=X, y=y)
+    for prior_std in cfg["prior_stds"]:
+        model = partial(bayesian_logistic_regression, X=X, y=y,
+                        prior_std=prior_std)
 
-    # Log density for RWM
-    def logistic_log_density(w, **kwargs):
-        log_prior = -0.5 * jnp.sum(w ** 2)
-        logits = X @ w
-        log_lik = jnp.sum(
-            y * jax.nn.log_sigmoid(logits) +
-            (1 - y) * jax.nn.log_sigmoid(-logits)
-        )
-        return log_prior + log_lik
+        def make_rwm_log_density(ps):
+            def logistic_log_density(w, **kwargs):
+                log_prior = -0.5 * jnp.sum((w / ps) ** 2) - \
+                            dimension * jnp.log(ps)
+                logits = jnp.clip(X @ w, -30, 30)
+                log_lik = jnp.sum(
+                    y * jax.nn.log_sigmoid(logits) +
+                    (1 - y) * jax.nn.log_sigmoid(-logits)
+                )
+                return log_prior + log_lik
+            return logistic_log_density
 
-    print(f"\n[logistic_regression] d={dimension}, n={X.shape[0]}")
+        rwm_log_density = make_rwm_log_density(prior_std)
 
-    for seed in cfg["seeds"]:
-        print(f"[logistic_regression] seed={seed}")
-        rng_key = random.PRNGKey(seed)
-
-        # HMC
-        rng_key, key = random.split(rng_key)
-        hmc_samples, hmc_runtime, hmc_divergences, _ = run_hmc(
-            key, dimension,
-            num_samples=cfg["num_samples"],
-            warmup_steps=cfg["warmup_steps"],
-            num_chains=cfg["num_chains"],
-            model=model,
-            model_kwargs={}
-        )
-        hmc_ess  = compute_ess(hmc_samples)
-        hmc_rhat = compute_rhat(hmc_samples, num_chains=cfg["num_chains"])
-        results.append({
-            "algorithm":       "HMC",
-            "dimension":       dimension,
-            "runtime":         hmc_runtime,
-            "ess":             hmc_ess,
-            "ess_per_sec":     compute_ess_per_sec(hmc_ess, hmc_runtime),
-            "rhat":            hmc_rhat,
-            "divergences":     hmc_divergences,
-            "acceptance_rate": None,
-            "experiment":      "logistic_regression",
-            "seed":            seed,
-        })
-
-        # NUTS
-        rng_key, key = random.split(rng_key)
-        nuts_samples, nuts_runtime, nuts_divergences, _ = run_nuts(
-            key, dimension,
-            num_samples=cfg["num_samples"],
-            warmup_steps=cfg["warmup_steps"],
-            num_chains=cfg["num_chains"],
-            model=model,
-            model_kwargs={}
-        )
-        nuts_ess  = compute_ess(nuts_samples)
-        nuts_rhat = compute_rhat(nuts_samples, num_chains=cfg["num_chains"])
-        results.append({
-            "algorithm":       "NUTS",
-            "dimension":       dimension,
-            "runtime":         nuts_runtime,
-            "ess":             nuts_ess,
-            "ess_per_sec":     compute_ess_per_sec(nuts_ess, nuts_runtime),
-            "rhat":            nuts_rhat,
-            "divergences":     nuts_divergences,
-            "acceptance_rate": None,
-            "experiment":      "logistic_regression",
-            "seed":            seed,
-        })
-
-        # RWM
-        rwm = RandomWalkMetropolis(proposal_std=cfg["proposal_std"])
-        rng_key, key = random.split(rng_key)
-        (rwm_samples, acceptance_rate), rwm_runtime = measure_runtime(
-            rwm.sample,
-            key, dimension,
-            cfg["num_samples"],
-            cfg["warmup_steps"],
-            num_chains=cfg["num_chains"],
-            log_density_fn=logistic_log_density,
-            model_kwargs={}
-        )
-        rwm_ess  = compute_ess(rwm_samples)
-        rwm_rhat = compute_rhat(rwm_samples, num_chains=cfg["num_chains"])
-        results.append({
-            "algorithm":       "RWM",
-            "dimension":       dimension,
-            "runtime":         rwm_runtime,
-            "ess":             rwm_ess,
-            "ess_per_sec":     compute_ess_per_sec(rwm_ess, rwm_runtime),
-            "rhat":            rwm_rhat,
-            "divergences":     None,
-            "acceptance_rate": acceptance_rate,
-            "experiment":      "logistic_regression",
-            "seed":            seed,
-        })
+        for seed in cfg["seeds"]:
+            print(f"[logistic] prior_std={prior_std} seed={seed}")
+            rng_key = random.PRNGKey(seed)
+            rows = _run_all_algorithms(
+                rng_key, dimension, seed,
+                extra_fields={"experiment": "logistic_regression",
+                              "prior_std": prior_std},
+                cfg=cfg,
+                hmc_model=model,
+                nuts_model=model,
+                rwm_log_density=rwm_log_density,
+            )
+            results.extend(rows)
 
     df = pd.DataFrame(results)
     df.to_csv("results/csv/logistic_regression_results.csv", index=False)
     print("Saved results/csv/logistic_regression_results.csv")
+    return df
+
+
+# ── Experiment 4: 8-Schools — centred vs non-centred, prior scale sweep ──────
+
+def run_eight_schools_experiment():
+    """
+    Tests two parameterisation axes on the real 8-schools hierarchical model:
+    1. Centred vs non-centred — shows funnel geometry in a real model
+    2. Prior scale on tau (tau_scale in {1.0, 10.0, 100.0}) — shows how
+       the prior on the group-level variance affects sampler performance
+    RWM excluded — posterior geometry too complex for isotropic proposals.
+    """
+    cfg = CONFIG
+    results = []
+    dimension = 10  # mu, tau, theta_1..theta_8
+
+    for param, model_fn in [
+        ("centred",    eight_schools_centred),
+        ("noncentred", eight_schools_noncentred),
+    ]:
+        for tau_scale in cfg["tau_scales"]:
+            model = partial(model_fn, tau_scale=tau_scale)
+            for seed in cfg["seeds"]:
+                print(f"[8-schools {param}] tau_scale={tau_scale} seed={seed}")
+                rng_key = random.PRNGKey(seed)
+                rows = _run_all_algorithms(
+                    rng_key, dimension, seed,
+                    extra_fields={"experiment":       "eight_schools",
+                                  "parameterisation": param,
+                                  "tau_scale":        tau_scale},
+                    cfg=cfg,
+                    hmc_model=model,
+                    nuts_model=model,
+                    rwm_log_density=None,
+                    include_rwm=False,
+                )
+                results.extend(rows)
+
+    df = pd.DataFrame(results)
+    df.to_csv("results/csv/eight_schools_results.csv", index=False)
+    print("Saved results/csv/eight_schools_results.csv")
     return df
 
 
@@ -313,57 +270,18 @@ def run_all_experiments():
     df_iso = run_isotropic_experiment()
     df_fun = run_funnel_experiment()
     df_lr  = run_logistic_regression_experiment()
+    df_8s  = run_eight_schools_experiment()
 
-    df_all = pd.concat([df_iso, df_fun, df_lr], ignore_index=True)
-    df_all.to_csv("results/csv/all_results.csv", index=False)
+    for df, path in [
+        (df_iso, "results/csv/isotropic_results.csv"),
+        (df_fun, "results/csv/funnel_results.csv"),
+        (df_lr,  "results/csv/logistic_regression_results.csv"),
+        (df_8s,  "results/csv/eight_schools_results.csv"),
+    ]:
+        df.to_csv(path, index=False)
 
-    df_iso.to_csv("results/csv/isotropic_results.csv", index=False)
-    df_fun.to_csv("results/csv/funnel_results.csv", index=False)
-
+    pd.concat([df_iso, df_fun, df_lr, df_8s], ignore_index=True).to_csv(
+        "results/csv/all_results.csv", index=False
+    )
     print("Saved all CSVs")
-    return df_iso, df_fun, df_lr
-
-
-if __name__ == "__main__":
-    df_iso, df_fun, df_lr = run_all_experiments()
-
-    # Isotropic plots
-    plot_ess(df_iso)
-    plot_runtime(df_iso)
-    plot_ess_per_sec(
-        df_iso,
-        title="ESS/s vs Dimension — Isotropic Gaussian",
-        save_path="results/figures/ess_per_sec_isotropic.png"
-    )
-    plot_rhat(df_iso,
-              title="R-hat vs Dimension — Isotropic Gaussian",
-              save_path="results/figures/rhat_isotropic.png")
-    plot_divergences(df_iso,
-                     title="Divergences vs Dimension — Isotropic Gaussian",
-                     save_path="results/figures/divergences_isotropic.png")
-
-    # Funnel plots
-    plot_funnel_comparison(df_fun)
-    plot_ess_per_sec(
-        df_fun[df_fun["parameterisation"] == "centred"],
-        title="ESS/s vs Dimension — Neal's Funnel (Centred)",
-        save_path="results/figures/ess_per_sec_funnel_centred.png"
-    )
-    plot_ess_per_sec(
-        df_fun[df_fun["parameterisation"] == "noncentred"],
-        title="ESS/s vs Dimension — Neal's Funnel (Non-Centred)",
-        save_path="results/figures/ess_per_sec_funnel_noncentred.png"
-    )
-    plot_rhat(df_fun,
-              title="R-hat vs Dimension — Neal's Funnel",
-              save_path="results/figures/rhat_funnel.png")
-    plot_divergences(df_fun,
-                     title="Divergences vs Dimension — Neal's Funnel",
-                     save_path="results/figures/divergences_funnel.png")
-
-    # Logistic regression plots
-    plot_logistic_regression_bar(df_lr)
-    plot_rhat_bar(df_lr)
-
-    # Summary panel
-    plot_experiment_panel(df_iso, df_fun)
+    return df_iso, df_fun, df_lr, df_8s
