@@ -8,15 +8,12 @@ import os
 import pandas as pd
 
 from experiment import (
-    run_isotropic_experiment,
     run_funnel_experiment,
     run_logistic_regression_experiment,
     run_eight_schools_experiment,
 )
 
 from analysis.plotting import (
-    plot_ess,
-    plot_runtime,
     plot_ess_per_sec,
     plot_rhat,
     plot_divergences,
@@ -39,23 +36,8 @@ def ensure_directories():
 def main():
     ensure_directories()
 
-    # ── Experiment 1: Isotropic Gaussian ──────────────────────────────────────
-    print("\n=== Experiment 1: Isotropic Gaussian ===")
-    df_iso = run_isotropic_experiment()
-    plot_ess(df_iso)
-    plot_runtime(df_iso)
-    plot_ess_per_sec(df_iso,
-        title="ESS/s vs Dimension — Isotropic Gaussian",
-        save_path="results/figures/ess_per_sec_isotropic.png")
-    plot_rhat(df_iso,
-        title="R-hat vs Dimension — Isotropic Gaussian",
-        save_path="results/figures/rhat_isotropic.png")
-    plot_divergences(df_iso,
-        title="Divergences vs Dimension — Isotropic Gaussian",
-        save_path="results/figures/divergences_isotropic.png")
-
-    # ── Experiment 2: Neal's Funnel ────────────────────────────────────────────
-    print("\n=== Experiment 2: Neal's Funnel ===")
+    # ── Experiment 1: Neal's Funnel ────────────────────────────────────────────
+    print("\n=== Experiment 1: Neal's Funnel ===")
     df_fun = run_funnel_experiment()
     plot_funnel_comparison(df_fun)
     plot_ess_per_sec(
@@ -72,9 +54,10 @@ def main():
     plot_divergences(df_fun,
         title="Divergences vs Dimension — Neal's Funnel",
         save_path="results/figures/divergences_funnel.png")
+    plot_experiment_panel(df_fun)
 
-    # ── Experiment 3: Bayesian Logistic Regression ─────────────────────────────
-    print("\n=== Experiment 3: Bayesian Logistic Regression ===")
+    # ── Experiment 2: Bayesian Logistic Regression ─────────────────────────────
+    print("\n=== Experiment 2: Bayesian Logistic Regression ===")
     df_lr = run_logistic_regression_experiment()
 
     # Baseline (sigma=1.0)
@@ -90,8 +73,8 @@ def main():
     plot_prior_scale_comparison(df_lr)
     plot_prior_scale_rhat(df_lr)
 
-    # ── Experiment 4: 8-Schools ────────────────────────────────────────────────
-    print("\n=== Experiment 4: 8-Schools Hierarchical Model ===")
+    # ── Experiment 3: 8-Schools ────────────────────────────────────────────────
+    print("\n=== Experiment 3: 8-Schools Hierarchical Model ===")
     df_8s = run_eight_schools_experiment()
 
     # Centred vs non-centred baseline (tau_scale=10.0)
@@ -120,11 +103,7 @@ def main():
     plot_tau_scale_rhat(df_8s, parameterisation="noncentred",
         save_path="results/figures/tau_scale_rhat_noncentred.png")
 
-    # ── Summary ────────────────────────────────────────────────────────────────
-    print("\n=== Summary panel ===")
-    plot_experiment_panel(df_iso, df_fun)
-
-    pd.concat([df_iso, df_fun, df_lr, df_8s], ignore_index=True).to_csv(
+    pd.concat([df_fun, df_lr, df_8s], ignore_index=True).to_csv(
         "results/csv/all_results.csv", index=False)
     print("\nDone.")
 

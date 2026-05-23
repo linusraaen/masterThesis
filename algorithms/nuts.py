@@ -1,6 +1,5 @@
 import numpyro
 from numpyro.infer import MCMC, NUTS
-from datasets import gaussian_model
 import time
 
 
@@ -14,7 +13,7 @@ def run_nuts(
     model_kwargs=None
 ):
     if model is None:
-        model = gaussian_model
+        raise ValueError("model must be provided")
 
     if model_kwargs is None:
         model_kwargs = {}
@@ -26,7 +25,7 @@ def run_nuts(
         num_samples=num_samples,
         num_warmup=warmup_steps,
         num_chains=num_chains,
-        progress_bar=True
+        progress_bar=False
     )
 
     start = time.time()

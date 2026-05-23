@@ -8,27 +8,6 @@ import numpy as np
 
 # ── Synthetic distributions ───────────────────────────────────────────────────
 
-def gaussian_model(dimension):
-    numpyro.sample(
-        "x",
-        dist.MultivariateNormal(
-            loc=jnp.zeros(dimension),
-            covariance_matrix=jnp.eye(dimension)
-        )
-    )
-
-
-def ill_conditioned_gaussian_model(dimension, condition_number=100):
-    eigenvalues = jnp.linspace(1.0, float(condition_number), dimension)
-    covariance = jnp.diag(eigenvalues)
-    numpyro.sample(
-        "x",
-        dist.MultivariateNormal(
-            loc=jnp.zeros(dimension),
-            covariance_matrix=covariance
-        )
-    )
-
 
 def funnel_model(dimension):
     v = numpyro.sample("v", dist.Normal(0.0, 3.0))

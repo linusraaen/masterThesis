@@ -20,7 +20,6 @@ def funnel_log_density(x, **kwargs):
     log_p_z = -0.5 * jnp.sum(z ** 2 * jnp.exp(-v)) - 0.5 * (x.shape[0] - 1) * v
     return log_p_v + log_p_z
 
-
 LOG_DENSITY_MAP = {
     "isotropic":         isotropic_log_density,
     "ill_conditioned":   ill_conditioned_log_density,

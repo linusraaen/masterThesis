@@ -12,7 +12,6 @@ from algorithms.hmc import run_hmc
 from algorithms.nuts import run_nuts
 
 from datasets import (
-    gaussian_model,
     funnel_model,
     funnel_model_noncentred,
     prepare_breast_cancer_data,
@@ -29,7 +28,6 @@ from analysis.metrics import (
 )
 
 CONFIG = {
-    "dimensions":        [2, 10, 50, 100, 200, 500],
     "funnel_dimensions": [2, 5, 10, 30, 100, 200, 500],
     "num_samples":       2000,
     "warmup_steps":      1000,
@@ -122,29 +120,7 @@ def _run_all_algorithms(rng_key, dimension, seed, extra_fields, cfg,
     return rows
 
 
-# ── Experiment 1: Isotropic Gaussian ─────────────────────────────────────────
-
-def run_isotropic_experiment():
-    cfg = CONFIG
-    results = []
-    for seed in cfg["seeds"]:
-        print(f"[isotropic] seed={seed}")
-        rng_key = random.PRNGKey(seed)
-        for d in cfg["dimensions"]:
-            rng_key, key = random.split(rng_key)
-            rows = _run_all_algorithms(
-                key, d, seed,
-                extra_fields={"experiment": "isotropic"},
-                cfg=cfg,
-                hmc_model=gaussian_model,
-                nuts_model=gaussian_model,
-                rwm_log_density=LOG_DENSITY_MAP["isotropic"],
-            )
-            results.extend(rows)
-    return pd.DataFrame(results)
-
-
-# ── Experiment 2: Neal's Funnel ───────────────────────────────────────────────
+# ── Experiment 1: Neal's Funnel ───────────────────────────────────────────────
 
 def run_funnel_experiment():
     cfg = CONFIG
@@ -267,21 +243,19 @@ def run_eight_schools_experiment():
 # ── Run all ───────────────────────────────────────────────────────────────────
 
 def run_all_experiments():
-    df_iso = run_isotropic_experiment()
     df_fun = run_funnel_experiment()
     df_lr  = run_logistic_regression_experiment()
     df_8s  = run_eight_schools_experiment()
 
     for df, path in [
-        (df_iso, "results/csv/isotropic_results.csv"),
         (df_fun, "results/csv/funnel_results.csv"),
         (df_lr,  "results/csv/logistic_regression_results.csv"),
         (df_8s,  "results/csv/eight_schools_results.csv"),
     ]:
         df.to_csv(path, index=False)
 
-    pd.concat([df_iso, df_fun, df_lr, df_8s], ignore_index=True).to_csv(
+    pd.concat([df_fun, df_lr, df_8s], ignore_index=True).to_csv(
         "results/csv/all_results.csv", index=False
     )
     print("Saved all CSVs")
-    return df_iso, df_fun, df_lr, df_8s
+    return df_fun, df_lr, df_8s

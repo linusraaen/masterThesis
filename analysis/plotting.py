@@ -326,16 +326,15 @@ def plot_tau_scale_rhat(
 
 # ── Panel plots ───────────────────────────────────────────────────────────────
 
-def plot_experiment_panel(df_iso, df_fun):
-    """3-panel summary: isotropic, funnel centred, funnel non-centred."""
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5), sharey=True)
-    fig.suptitle("Scalability of MCMC Methods", fontsize=14, fontweight="bold")
+def plot_experiment_panel(df_fun):
+    """2-panel summary: funnel centred and funnel non-centred."""
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    fig.suptitle("Neal's Funnel: Effect of Parameterisation", fontsize=14, fontweight="bold")
 
     datasets = [
-        (axes[0], df_iso, "Isotropic Gaussian"),
-        (axes[1], df_fun[df_fun["parameterisation"] == "centred"],
+        (axes[0], df_fun[df_fun["parameterisation"] == "centred"],
          "Neal's Funnel (centred)"),
-        (axes[2], df_fun[df_fun["parameterisation"] == "noncentred"],
+        (axes[1], df_fun[df_fun["parameterisation"] == "noncentred"],
          "Neal's Funnel (non-centred)"),
     ]
 

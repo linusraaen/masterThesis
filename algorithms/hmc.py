@@ -1,6 +1,5 @@
 import numpyro
 from numpyro.infer import MCMC, HMC
-from datasets import gaussian_model
 import time
 
 
@@ -14,7 +13,7 @@ def run_hmc(
     model_kwargs=None
 ):
     if model is None:
-        model = gaussian_model
+        raise ValueError("model must be provided")
 
     if model_kwargs is None:
         model_kwargs = {}
