@@ -326,44 +326,6 @@ def plot_tau_scale_rhat(
 
 # ── Panel plots ───────────────────────────────────────────────────────────────
 
-def plot_experiment_panel(df_fun):
-    """2-panel summary: funnel centred and funnel non-centred."""
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
-    fig.suptitle("Neal's Funnel: Effect of Parameterisation", fontsize=14, fontweight="bold")
-
-    datasets = [
-        (axes[0], df_fun[df_fun["parameterisation"] == "centred"],
-         "Neal's Funnel (centred)"),
-        (axes[1], df_fun[df_fun["parameterisation"] == "noncentred"],
-         "Neal's Funnel (non-centred)"),
-    ]
-
-    for ax, data, title in datasets:
-        agg = _agg(data, "ess_per_sec")
-        for algo in ALGO_ORDER:
-            sub = agg[agg["algorithm"] == algo].sort_values("dimension")
-            if sub.empty:
-                continue
-            ax.errorbar(
-                sub["dimension"], sub["mean"], yerr=sub["std"],
-                marker="o", label=algo, color=ALGO_COLORS[algo],
-                linewidth=2, capsize=3, capthick=1.2,
-            )
-        ax.set_title(title, fontsize=11)
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("Dimension", fontsize=10)
-        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.6)
-        ax.legend(fontsize=9)
-
-    axes[0].set_ylabel("ESS per Second", fontsize=10)
-    fig.tight_layout()
-    fig.savefig("results/figures/experiment_panel.png", dpi=300,
-                bbox_inches="tight")
-    plt.close()
-    print("Saved results/figures/experiment_panel.png")
-
-
 def plot_funnel_comparison(df_fun):
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
     fig.suptitle("Neal's Funnel: Centred vs Non-Centred",

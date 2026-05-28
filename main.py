@@ -2,7 +2,6 @@ import numpyro
 numpyro.set_host_device_count(4)
 
 import jax
-print(f"Devices available: {jax.local_device_count()}")
 
 import os
 import pandas as pd
@@ -17,7 +16,6 @@ from analysis.plotting import (
     plot_ess_per_sec,
     plot_rhat,
     plot_divergences,
-    plot_experiment_panel,
     plot_funnel_comparison,
     plot_logistic_regression_bar,
     plot_rhat_bar,
@@ -48,13 +46,18 @@ def main():
         df_fun[df_fun["parameterisation"] == "noncentred"],
         title="ESS/s vs Dimension — Neal's Funnel (Non-Centred)",
         save_path="results/figures/ess_per_sec_funnel_noncentred.png")
-    plot_rhat(df_fun,
-        title="R-hat vs Dimension — Neal's Funnel",
-        save_path="results/figures/rhat_funnel.png")
-    plot_divergences(df_fun,
-        title="Divergences vs Dimension — Neal's Funnel",
-        save_path="results/figures/divergences_funnel.png")
-    plot_experiment_panel(df_fun)
+    plot_rhat(df_fun[df_fun["parameterisation"] == "centred"],
+    title="R-hat vs Dimension — Neal's Funnel (Centred)",
+    save_path="results/figures/rhat_funnel_centred.png")
+    plot_rhat(df_fun[df_fun["parameterisation"] == "noncentred"],
+        title="R-hat vs Dimension — Neal's Funnel (Non-Centred)",
+        save_path="results/figures/rhat_funnel_noncentred.png")
+    plot_divergences(df_fun[df_fun["parameterisation"] == "centred"],
+        title="Divergences vs Dimension — Neal's Funnel (Centred)",
+        save_path="results/figures/divergences_funnel_centred.png")
+    plot_divergences(df_fun[df_fun["parameterisation"] == "noncentred"],
+        title="Divergences vs Dimension — Neal's Funnel (Non-Centred)",
+        save_path="results/figures/divergences_funnel_noncentred.png")
 
     # ── Experiment 2: Bayesian Logistic Regression ─────────────────────────────
     print("\n=== Experiment 2: Bayesian Logistic Regression ===")
